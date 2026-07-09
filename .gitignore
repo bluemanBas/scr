@@ -4,6 +4,8 @@ server/gcode/
 server/data/
 dist/
 .env
+.env.local
+server/routes/test-summary.js
 *.csv
 .claude/
 *.docx

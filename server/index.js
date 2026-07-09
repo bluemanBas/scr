@@ -30,6 +30,7 @@ const settingsRouter     = require('./routes/settings')(db);
 const modelsRouter       = require('./routes/models')(db);
 const filamentsRouter    = require('./routes/filaments')(db);
 const printerJobsRouter  = require('./routes/printer-jobs')(db);
+const summaryRouter      = require('./routes/summary')(db);
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -37,16 +38,17 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 
 // API routes
-app.use('/api/printers',        printersRouter);
+app.use('/api/printers',          printersRouter);
 app.use('/api/printers/:id/jobs', printerJobsRouter);
-app.use('/api/parts',           partsRouter);
-app.use('/api/gcodes',          gcodesRouter);
-app.use('/api/jobs',            jobsRouter);
-app.use('/api/backup',          backupRouter);
-app.use('/api/dashboard',       dashboardRouter);
-app.use('/api/settings',        settingsRouter);
-app.use('/api/models',          modelsRouter);
-app.use('/api/filaments',       filamentsRouter);
+app.use('/api/parts',             partsRouter);
+app.use('/api/gcodes',            gcodesRouter);
+app.use('/api/jobs',              jobsRouter);
+app.use('/api/backup',            backupRouter);
+app.use('/api/dashboard',         dashboardRouter);
+app.use('/api/settings',          settingsRouter);
+app.use('/api/models',            modelsRouter);
+app.use('/api/filaments',         filamentsRouter);
+app.use('/api/summary',           summaryRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {
