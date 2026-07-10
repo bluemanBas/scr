@@ -41,6 +41,7 @@ print-farm-manager/
 │   ├── poller.js         # Printer polling loop (EventEmitter)
 │   ├── scheduler.js      # Job dispatch engine (EventEmitter)
 │   ├── events.js         # Printer event log helper — insert(printerId, type, note)
+│   ├── gcode-thumbnail.js # Extracts embedded preview image from .bgcode/.gcode
 │   ├── notifications.js  # In-memory operator alert store
 │   └── routes/
 │       ├── printers.js   # CRUD + CSV import + decommission/recommission
@@ -52,7 +53,8 @@ print-farm-manager/
 │       ├── models.js     # Printer model registry CRUD
 │       ├── settings.js   # Key/value operator settings (dispatch_batch_size)
 │       ├── backup.js     # Farm export + restore
-│       └── dashboard.js  # TV command center — single-endpoint fleet summary
+│       ├── dashboard.js  # TV command center — single-endpoint fleet summary
+│       └── summary.js    # Weekly activity summary via Claude (GET /api/summary/weekly)
 ├── client/
 │   ├── src/
 │   │   ├── App.jsx       # Layout + router
@@ -65,7 +67,8 @@ print-farm-manager/
 │   │       ├── Settings.jsx       # CSV import, add printer, printer models
 │   │       ├── Dashboard.jsx      # Fleet summary (TV mode)
 │   │       ├── Projects.jsx       # Project/Part/G-code management
-│   │       └── Jobs.jsx           # Job queue table
+│   │       ├── Jobs.jsx           # Job queue table
+│   │       └── Gcodes.jsx         # G-code Library — all files, download, delete, reuse
 ├── docs/                 # This folder
 ├── .github/workflows/    # CI — see docs/docker-publish.md
 ├── ARCHITECTURE.md       # Full product spec and phase planning

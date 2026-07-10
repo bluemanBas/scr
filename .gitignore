@@ -10,3 +10,4 @@ server/routes/test-summary.js
 .claude/
 *.docx
 server/data/backups/
+gcodeprueba.bgcode

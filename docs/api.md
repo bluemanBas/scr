@@ -364,6 +364,52 @@ Returns all G-code records. Each record includes `part_id`, `printer_model`, `fi
 
 `filepath` stores only the filename (not an absolute path) — the server resolves the full path at runtime using its own `server/gcode/` directory. This makes the DB portable across machines.
 
+A G-code reused across Parts shares one physical file: several `gcodes` rows point at the same `filepath` (see `POST /api/gcodes/:id/reuse`). A row with `part_id = null` is a file that lives in the Library but is not attached to any Part.
+
+### `GET /api/gcodes/library`
+
+The G-code Library — one entry per **unique physical file** (rows sharing a `filepath` are collapsed). Powers the G-codes page. No params.
+
+Each entry adds, on top of the base G-code fields: `use_count` (how many Parts use the file; `0` = unused), `project_names` (comma-separated distinct project names using it, `null` if unused), and `size_bytes` (on-disk size, `null` if the file is missing).
+
+```json
+[
+  {
+    "id": 12,
+    "filepath": "1774903214387_bracket.bgcode",
+    "filename": "4x Left Bracket_0.20n_MK4S_5h11m.bgcode",
+    "printer_model": "mk4s",
+    "parts_per_plate": 4,
+    "est_print_secs": 18660,
+    "material_grams": 45,
+    "created_at": 1774903214387,
+    "use_count": 2,
+    "project_names": "Brackets Batch, Spare Parts",
+    "size_bytes": 184320
+  }
+]
+```
+
+### `GET /api/gcodes/:id/download`
+
+Downloads the physical G-code file under its original upload name (`Content-Disposition: attachment`). Returns `404` if the record or the file on disk is missing.
+
+### `GET /api/gcodes/:id/thumbnail`
+
+Returns the slicer-embedded preview image of the print, if the file has one. Response is the raw image with its `Content-Type` (`image/png` or `image/jpeg`) and a 1-day `Cache-Control`. No dependencies — the image is parsed straight out of the file.
+
+Supported formats: `.bgcode` (Prusa binary — reads the embedded PNG/JPG thumbnail block; QOI-only thumbnails are skipped) and `.gcode` (PrusaSlicer/SuperSlicer base64 PNG in comments). `.3mf` is not supported yet.
+
+Returns `404` if the record is missing or the file has no extractable thumbnail. The client uses this to show a small preview on the G-codes page and reuse picker, falling back to a placeholder on `404`.
+
+### `POST /api/gcodes/:id/reuse`
+
+Attaches an existing G-code to another Part **without re-uploading**. Points the new row at the same physical file (no copy on disk), so reusing a file any number of times never duplicates it.
+
+**Body:** `{ "part_id": N }`
+
+Returns `201` with the new G-code record. Copies the source's model, plate count, and estimates. Returns `400` if `part_id` is missing, `404` if the source G-code / target Part / source file is missing, and `409` if the target Part already has a G-code for the same `printer_model`.
+
 ### `POST /api/gcodes/parse-filename`
 
 Parses a G-code filename and returns structured fields without saving anything. Used to pre-fill the upload form and per-gcode estimate inputs.
@@ -417,11 +463,17 @@ Returns the updated G-code record.
 
 ### `DELETE /api/gcodes/:id`
 
-Deletes the DB record and removes the file from disk. Returns `{ "success": true }`.
+**Removes a G-code from its Part — does not delete the file.** If another Part reuses the same file, this row is dropped and the file stays. If this was the file's only usage, the row is kept with `part_id` set to `null` so the file remains in the Library, just unattached. The physical file is never removed here. Returns `{ "success": true }`.
 
-Returns `409` if the gcode is referenced by an active job (`queued`, `uploading`, or `printing`). Wait for the job to finish or cancel it before deleting.
+Returns `409` if the gcode is referenced by an active job (`queued`, `uploading`, or `printing`). Wait for the job to finish or cancel it before removing.
 
-Historical jobs (`finished`, `failed`, `cancelled`) are retained with their `gcode_id` nulled out so job history is preserved.
+For permanent deletion, use `DELETE /api/gcodes/:id/file`.
+
+### `DELETE /api/gcodes/:id/file`
+
+**Permanently deletes the file from the Library.** Removes every `gcodes` row that references the same `filepath` (across all Parts) and deletes the physical file from disk. Returns `{ "success": true }`.
+
+Returns `409` if any usage of the file is referenced by an active job. Historical jobs (`finished`, `failed`, `cancelled`) on any of those rows are retained with their `gcode_id` nulled out so job history is preserved.
 
 ---
 
@@ -607,3 +659,50 @@ Each table's restore INSERT covers the columns the *live* schema currently has (
 }
 ```
 | `500` | Unhandled server error |
+
+---
+
+## Summary
+
+### `GET /api/summary/weekly`
+
+Aggregates the last 7 days of farm activity and asks Claude (Anthropic Messages API) for a short natural-language summary in Spanish. No request body.
+
+Requires `ANTHROPIC_API_KEY` in the server environment. The endpoint aggregates the raw stats locally (from `jobs`, `gcodes`, and `printer_events`) and sends only that JSON to Claude — no farm data leaves the server beyond the aggregated numbers.
+
+**Caching.** The generated summary is cached in memory for **1 hour** (single global slot — the endpoint takes no parameters), so repeated requests within the window are served without a paid Claude call or any DB work. Pass `?refresh=1` (or `?refresh=true`) to bypass the cache and regenerate. The response includes `cached` (`true`/`false`) and `generated_at` (epoch ms of when the cached summary was produced). The cache is process-local, so a server restart or redeploy clears it. The Claude call is bounded by a **30-second timeout** (`504` if exceeded) so a stalled upstream can't hang the request.
+
+Stats aggregated over `finished_at >= now - 7 days`:
+- `trabajos_completados` — count of jobs with `status IN ('finished','done')`.
+- `piezas` — sum of `parts_per_plate` across those jobs.
+- `horas_maquina` — sum of `finished_at - started_at`, in hours (1 decimal).
+- `material_gramos` — sum of per-part grams (`gcodes.material_grams / gcodes.parts_per_plate × jobs.parts_per_plate`) for jobs whose gcode has a material estimate.
+- `fallas` — count of `printer_events` with `event_type IN ('job_failed','job_cancelled')` in the window.
+- `por_impresora` — per-active-printer breakdown (`nombre`, `modelo`, `trabajos`, `piezas`, `horas`), including printers that printed nothing, ordered by parts descending.
+
+**Response:**
+```json
+{
+  "stats": {
+    "rango": "últimos 7 días",
+    "trabajos_completados": 6,
+    "piezas": 24,
+    "horas_maquina": 19.0,
+    "material_gramos": 270,
+    "fallas": 2,
+    "por_impresora": [
+      { "nombre": "B.E.N.", "modelo": "Core One", "trabajos": 3, "piezas": 12, "horas": 8.5 }
+    ]
+  },
+  "summary": "Esta semana B.E.N. fue el que más rindió con 12 piezas…",
+  "cached": false,
+  "generated_at": 1783204800000
+}
+```
+
+| Code | Meaning |
+|---|---|
+| `503` | `ANTHROPIC_API_KEY` not set in the server environment |
+| `504` | The Anthropic API did not respond within 30 s (timeout) |
+| `502` | The Anthropic API returned an error (`detail` carries the upstream body) |
+| `500` | Unhandled server error while aggregating or generating |

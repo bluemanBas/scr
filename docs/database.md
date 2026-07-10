@@ -6,6 +6,8 @@
 
 On startup, `db.js` also runs one-time idempotent data migrations: seeding `printer_models` from existing printer/gcode records, and backfilling `printer_events` decommission entries for printers that were decommissioned before the events table existed.
 
+Two columns can't be relaxed by `ALTER TABLE` (SQLite can't drop a `NOT NULL`), so `db.js` rebuilds those tables once (guarded by a `PRAGMA table_info` check so it runs only when still needed): `jobs.gcode_id` and `gcodes.part_id` are both made nullable via a create-copy-drop-rename under `PRAGMA foreign_keys = OFF`.
+
 ## Driver
 
 `better-sqlite3` — synchronous SQLite. All queries are blocking calls that return results directly (no promises, no callbacks). This simplifies the entire server-side codebase: no `async/await` is needed for database operations.
@@ -104,10 +106,10 @@ A G-code file attached to a specific Part + printer model combination.
 ```sql
 CREATE TABLE IF NOT EXISTS gcodes (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
-  part_id          INTEGER NOT NULL REFERENCES parts(id),
+  part_id          INTEGER REFERENCES parts(id),   -- nullable: null = in Library, not attached to a Part
   printer_model    TEXT NOT NULL,      -- mk4s | core1 | core1l | xl
   filename         TEXT NOT NULL,
-  filepath         TEXT NOT NULL,      -- absolute path under server/gcode/
+  filepath         TEXT NOT NULL,      -- filename under server/gcode/; shared by rows that reuse the same file
   parts_per_plate  INTEGER NOT NULL,
   est_print_secs   INTEGER,            -- nullable; per-plate print time in seconds
   material_grams   REAL,              -- nullable; per-plate filament weight in grams
@@ -115,6 +117,10 @@ CREATE TABLE IF NOT EXISTS gcodes (
   created_at       INTEGER NOT NULL
 );
 ```
+
+`part_id` is **nullable** (a startup migration relaxes the old `NOT NULL` on existing installs — see below). A row with `part_id = null` is a file that lives in the G-code Library without being attached to any Part — the state a file lands in when it is removed from its last Part but not deleted outright.
+
+**File reuse & reference counting.** Reusing a G-code on another Part (`POST /api/gcodes/:id/reuse`) inserts a new row pointing at the **same `filepath`** — the physical file is never copied, so reuse never duplicates it on disk. Because several rows can back one file, `DELETE /api/gcodes/:id` (remove-from-Part) only ever drops rows; the physical file is deleted only by `DELETE /api/gcodes/:id/file`, which removes every row sharing that `filepath` and unlinks the file.
 
 **Uniqueness on `(part_id, printer_model)`** is enforced at the application layer, not as a DB constraint, so the error message shown to the operator is clear and specific.
 

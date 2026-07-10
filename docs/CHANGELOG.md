@@ -2,6 +2,73 @@
 
 ---
 
+## 2026-07-10 — G-code thumbnails (slicer preview images)
+
+The G-codes page and the reuse picker now show the slicer-embedded **preview image** of each print, so files are recognizable at a glance instead of by filename alone. No new dependencies — the image is parsed straight out of the file with `Buffer`/`zlib`.
+
+- **`.bgcode`** (Prusa binary — Core One/XL/MK): parses the file's block structure and serves the embedded PNG/JPG thumbnail (prefers the largest PNG; skips QOI-only, which isn't browser-native). Stops scanning at the first G-code block, so it never reads the multi-MB body.
+- **`.gcode`** (PrusaSlicer/SuperSlicer text): pulls the base64 PNG from the `; thumbnail begin…end` comment block.
+- `.3mf` not supported yet (it's a zip — would need a zip reader).
+
+### Changes
+- `server/gcode-thumbnail.js` (new): `extractThumbnail(filePath) → { mime, buffer } | null`, dependency-free.
+- `server/routes/gcodes.js`: new `GET /api/gcodes/:id/thumbnail` (serves the image with a 1-day `Cache-Control`, `404` when none).
+- `client/src/pages/Gcodes.jsx`: `<Thumb>` preview column (lazy-loaded, placeholder on `404`).
+- `client/src/pages/Projects.jsx`: `<ReuseThumb>` thumbnail in the "Use an existing file…" picker.
+- `docs/api.md`, `docs/web-app.md`, `docs/README.md`: documented the endpoint, the module, and the UI.
+
+**Verification:** parsed a real 12.5 MB `.bgcode` (4 embedded thumbnails: 3× QOI + 1× PNG 380×285) — extractor returned the PNG; uploaded the file through the live API and confirmed `GET /:id/thumbnail` serves a valid `image/png` (46 KB) end-to-end. Client rebuilt via full Vite build.
+
+---
+
+## 2026-07-10 — G-code Library: reusable files + new G-codes page
+
+Two problems: uploaded G-codes could only be seen nested inside their Part (no way to browse or download them), and every project needed its file re-uploaded from the PC. Added a G-code Library page and cross-project file reuse — reuse points at the same physical file, so it never duplicates on disk no matter how many projects use it.
+
+**Data model.** `gcodes.part_id` is now nullable (a startup table-rebuild migration, mirroring the existing `jobs.gcode_id` one). A row with `part_id = null` is a file that lives in the Library attached to no Part — the state a file lands in when removed from its last Part but not deleted. Multiple rows can share one `filepath` (a file reused across Parts); the physical file is reference-counted so it's only unlinked when the last reference is gone.
+
+**Behavior.**
+- **See / download** — new **G-codes** page (`/gcodes`) lists every file once (rows sharing a file are collapsed), with model, plate count, time, material, size, and which projects use it. Each file has Download and a permanent Delete.
+- **Reuse** — a Part's G-code section gains a "Use an existing file…" picker; picking a file attaches it to the Part without re-uploading and without copying it on disk.
+- **Remove ≠ delete** — removing a G-code from a Part now only detaches it (the file stays in the Library); the file is deleted for good only from the G-codes page.
+
+### Changes
+- `server/db.js`: rebuild migration making `gcodes.part_id` nullable (guarded by `PRAGMA table_info`).
+- `server/routes/gcodes.js`: new `GET /library` (unique files + `use_count`/`project_names`/`size_bytes`), `GET /:id/download`, `POST /:id/reuse` (same-file, no copy). `DELETE /:id` is now remove-from-Part (drops the row, or nulls `part_id` if it was the last usage — never touches the file); new `DELETE /:id/file` is the permanent delete (purges all rows sharing the file + unlinks it). Both delete paths keep the active-job `409` guard.
+- `client/src/pages/Gcodes.jsx` (new): the Library page — search, download, delete, "used by" / unused.
+- `client/src/App.jsx`: `G-codes` nav item + `/gcodes` route.
+- `client/src/pages/Projects.jsx`: `ReuseGcodePicker` under the upload panel; per-Part delete reworded to "Remove from part" to match the new detach semantics.
+- `docs/api.md`, `docs/database.md`, `docs/web-app.md`, `docs/README.md`: documented the endpoints, nullable `part_id` + reference-counting, and the new page.
+
+**Verification:** exercised the whole lifecycle against a real SQLite DB (`node:sqlite`) with real files — library grouping, reuse without disk duplication, remove-from-part keeping the file (incl. the last-usage → unattached case), download, and permanent delete (25/25 checks). Client JSX validated via esbuild (no `client/node_modules` locally to run a full Vite build).
+
+---
+
+## 2026-07-10 — Weekly summary: response cache + request timeout
+
+Hardened `GET /api/summary/weekly`, which previously made a paid Claude call (and ran all the aggregation queries) on *every* request, with no upper bound on how long it would wait for the Anthropic API.
+
+- **In-memory cache (1 h TTL).** The generated summary is stored in a single process-local slot (the endpoint takes no parameters) and re-served for an hour, so a page refresh or repeated loads cost nothing. `?refresh=1` (or `?refresh=true`) bypasses it. Responses now carry `cached` (`true`/`false`) and `generated_at` (epoch ms). The cache is process-local, so a restart/redeploy clears it — acceptable given the near-static weekly window and this project's frequent redeploys (one extra call after each deploy).
+- **30 s timeout.** Native `fetch` has no default timeout, so a stalled Anthropic API would hang the request indefinitely. Wrapped the call in an `AbortController`; on abort the endpoint returns `504` instead of hanging.
+
+### Changes
+- `server/routes/summary.js`: added `CACHE_TTL_MS`/`CLAUDE_TIMEOUT_MS` constants and a module-level `cache`; serve-from-cache short-circuit (honoring `?refresh`) before aggregating; `AbortController` + `clearTimeout` around the `fetch`, returning `504` on `AbortError`; response now includes `cached`/`generated_at`.
+- `docs/api.md`: documented caching, the `?refresh` param, the `cached`/`generated_at` fields, and the `504` code.
+
+---
+
+## 2026-07-09 — Weekly summary endpoint (`GET /api/summary/weekly`)
+
+Added an endpoint that aggregates the last 7 days of farm activity and asks Claude for a short natural-language recap in Spanish. The server computes all the raw numbers locally (jobs completed, parts, machine-hours, material grams, failures, and a per-printer breakdown) and sends only that aggregated JSON to the Anthropic Messages API — no farm data beyond the summary stats leaves the server. Uses native `fetch` (no SDK) and reads `ANTHROPIC_API_KEY` from the environment; returns `503` if the key is absent, `502` if the upstream API errors.
+
+### Changes
+- `server/routes/summary.js` (new): `GET /api/summary/weekly`. Aggregates `jobs`/`gcodes`/`printer_events` over `finished_at >= now - 7d`; failures counted from `printer_events` with `event_type IN ('job_failed','job_cancelled')`; per-printer breakdown via `LEFT JOIN` so printers that printed nothing still appear. Calls `claude-sonnet-5` with a Spanish system prompt, `max_tokens: 400`.
+- `server/index.js`: mounted `summaryRouter` at `/api/summary` (and re-aligned the route-mount column formatting).
+- `.gitignore`: added `.env.local` and `server/routes/test-summary.js` (a local, uncommitted harness that exercises the route against an in-memory DB).
+- `docs/api.md`: documented the new `Summary` section — stats shape, response, and error codes.
+
+---
+
 ## 2026-07-07 — Dockerized development workflow (`dev` profile)
 
 Following up on issue #15 (developer couldn't get a containerized dev environment running: `ERROR: client/dist/index.html not found` when trying to run the server for local dev) and the maintainer's own admission there that the `Dockerfile` "was just focused on production... I've been lazy to put together a development target" — added a Docker-based alternative to the native `npm run dev` workflow. Purely additive: the native workflow in the README/Installation Guide is unchanged, and the production `docker compose up` path is unchanged (still builds the same `runtime` target it always has, now pinned explicitly).

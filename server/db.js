@@ -220,6 +220,39 @@ if (gcodeIdCol && gcodeIdCol.notnull === 1) {
   `);
 }
 
+// Make gcodes.part_id nullable so a G-code can stay in the Library without being
+// attached to any Part (removing it from a Project no longer deletes the file).
+const partIdCol = db.prepare("PRAGMA table_info(gcodes)").all().find(c => c.name === 'part_id');
+if (partIdCol && partIdCol.notnull === 1) {
+  db.exec(`
+    PRAGMA foreign_keys = OFF;
+    CREATE TABLE gcodes_migrated (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      part_id           INTEGER REFERENCES parts(id),
+      printer_model     TEXT NOT NULL,
+      filename          TEXT NOT NULL,
+      filepath          TEXT NOT NULL,
+      parts_per_plate   INTEGER NOT NULL,
+      est_print_secs    INTEGER,
+      created_at        INTEGER NOT NULL,
+      ams_slot          INTEGER,
+      material_grams    REAL,
+      allowed_groups    TEXT,
+      required_material TEXT,
+      required_color    TEXT
+    );
+    INSERT INTO gcodes_migrated
+      (id, part_id, printer_model, filename, filepath, parts_per_plate, est_print_secs, created_at, ams_slot, material_grams, allowed_groups, required_material, required_color)
+    SELECT
+       id, part_id, printer_model, filename, filepath, parts_per_plate, est_print_secs, created_at, ams_slot, material_grams, allowed_groups, required_material, required_color
+    FROM gcodes;
+    DROP TABLE gcodes;
+    ALTER TABLE gcodes_migrated RENAME TO gcodes;
+    PRAGMA foreign_keys = ON;
+  `);
+  console.log('[db] Migrated gcodes — part_id is now nullable (Library-only files supported)');
+}
+
 // Backfill decommission events for printers that were decommissioned before the
 // printer_events table existed. Runs once per printer (checked via event absence).
 // Uses decommissioned_at as the event timestamp so the timeline is accurate.

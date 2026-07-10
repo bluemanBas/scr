@@ -11,6 +11,7 @@ The React single-page application served by Vite. In development, Vite runs on p
 - **Settings page** — CSV import UI for the printer registry, with flagged-row resolution
 - **Projects page** — project/part/G-code management and production tracking
 - **Jobs page** — live job queue with filters and cancel action
+- **G-codes page** — the G-code Library: every file listed once, with download, permanent delete, and reuse across projects
 
 ## Key Files
 
@@ -26,6 +27,7 @@ The React single-page application served by Vite. In development, Vite runs on p
 | `client/src/pages/Dashboard.jsx` | TV command center dashboard |
 | `client/src/pages/Projects.jsx` | Project/Part/G-code management |
 | `client/src/pages/Jobs.jsx` | Job queue table with filters |
+| `client/src/pages/Gcodes.jsx` | G-code Library — all files, download, delete, reuse |
 | `client/src/components/PollTimer.jsx` | Shared circular refresh-countdown ring used by Fleet and Dashboard |
 | `client/index.html` | HTML shell with dark background baseline CSS |
 | `client/vite.config.js` | Vite config — port 5173, `/api` proxy to 3000 |
@@ -45,6 +47,7 @@ The React single-page application served by Vite. In development, Vite runs on p
 │  Printers         │                       │
 │  Projects         │                       │
 │  Jobs             │                       │
+│  G-codes          │                       │
 │  Decommissioned   │                       │
 │  Settings         │                       │
 └───────────────────┴───────────────────────┘
@@ -269,6 +272,24 @@ Live job queue that polls `GET /api/jobs` every 15 seconds.
 | finished | muted dark green | light green |
 | failed | dark red | red |
 | cancelled | near-black | muted gray |
+
+## G-codes Page
+
+`client/src/pages/Gcodes.jsx`
+
+The G-code Library — every uploaded file, listed **once** (fetched from `GET /api/gcodes/library`, which collapses rows that share a physical file). A client-side search box filters by filename, model, or project.
+
+**Columns:** Preview, File, Model, Plate (parts per plate), Time, Material, Size, Used by, Added, Actions
+
+**Preview** is the slicer-embedded thumbnail via `GET /api/gcodes/:id/thumbnail` (`<Thumb>` component), lazy-loaded, falling back to a placeholder box when the file has none. The reuse picker on the Projects page shows the same thumbnail (`<ReuseThumb>`) next to each file.
+
+**"Used by"** shows the distinct projects using the file, or an italic *unused* when `use_count` is 0 (a file kept in the Library but attached to no Part).
+
+**Actions:**
+- **Download** — a plain `<a>` to `GET /api/gcodes/:id/download` (downloads under the original filename).
+- **Delete** — `DELETE /api/gcodes/:id/file` with a confirm dialog. This is the **permanent** delete: it removes the file everywhere and from disk. The confirm warns when the file is still used by one or more parts.
+
+Reuse itself happens on the **Projects page**, not here: a Part's G-code section has a "Use an existing file…" picker (`ReuseGcodePicker`) that lists the library and calls `POST /api/gcodes/:id/reuse` to attach a file to the Part without re-uploading. Removing a G-code from a Part there (`DELETE /api/gcodes/:id`) only detaches it — the file stays in this Library.
 
 ## Live Update Pattern
 
