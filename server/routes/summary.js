@@ -5,12 +5,26 @@ const router  = express.Router();
 const DONE    = "('finished','done')";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
+// El resumen semanal cambia lento, así que lo cacheamos: evita pagar una llamada
+// a Claude por cada request (p. ej. una página que refresca o recarga).
+const CACHE_TTL_MS      = 60 * 60 * 1000; // 1 hora
+const CLAUDE_TIMEOUT_MS = 30 * 1000;      // corta el fetch si Anthropic no responde
+
+// Un solo slot: el endpoint no toma parámetros, así que hay un único resumen vigente.
+let cache = null; // { at: number, payload: { stats, summary } }
+
 module.exports = (db) => {
   // GET /api/summary/weekly — agrega los últimos 7 días y le pide a Claude un resumen en lenguaje natural.
   router.get('/weekly', async (req, res) => {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return res.status(503).json({ error: 'Falta ANTHROPIC_API_KEY en el entorno del servidor.' });
+    }
+
+    // Sirve desde caché salvo que se pida ?refresh=1 (o refresh=true).
+    const force = req.query.refresh === '1' || req.query.refresh === 'true';
+    if (!force && cache && (Date.now() - cache.at) < CACHE_TTL_MS) {
+      return res.json({ ...cache.payload, cached: true, generated_at: cache.at });
     }
 
     const since = Date.now() - WEEK_MS;
@@ -69,27 +83,43 @@ module.exports = (db) => {
       };
 
       // ── Llamada a la API de Claude (fetch nativo, sin SDK) ───────────────
-      const r = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'content-type':     'application/json',
-          'x-api-key':        apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model:      'claude-sonnet-4-5',
-          max_tokens: 400,
-          system:
-            'Eres el asistente de una granja de impresión 3D (Fábrica 3D). ' +
-            'Escribe en español chileno, tono directo y práctico, sin relleno. ' +
-            'Resume la semana en 3-4 frases: destaca lo relevante (qué robot rindió más, ' +
-            'fallas si las hubo, material usado) y una sugerencia si algo llama la atención. ' +
-            'No inventes datos fuera del JSON entregado.',
-          messages: [
-            { role: 'user', content: `Datos de la semana:\n${JSON.stringify(stats, null, 2)}` },
-          ],
-        }),
-      });
+      // AbortController corta el fetch si Anthropic no responde a tiempo, así el
+      // request no queda colgado indefinidamente (fetch no trae timeout propio).
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), CLAUDE_TIMEOUT_MS);
+
+      let r;
+      try {
+        r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            'content-type':     'application/json',
+            'x-api-key':        apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model:      'claude-sonnet-5',
+            max_tokens: 400,
+            system:
+              'Eres el asistente de una granja de impresión 3D (Fábrica 3D). ' +
+              'Escribe en español chileno, tono directo y práctico, sin relleno. ' +
+              'Resume la semana en 3-4 frases: destaca lo relevante (qué robot rindió más, ' +
+              'fallas si las hubo, material usado) y una sugerencia si algo llama la atención. ' +
+              'No inventes datos fuera del JSON entregado.',
+            messages: [
+              { role: 'user', content: `Datos de la semana:\n${JSON.stringify(stats, null, 2)}` },
+            ],
+          }),
+        });
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          return res.status(504).json({ error: `La API de Claude no respondió en ${CLAUDE_TIMEOUT_MS / 1000}s.` });
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
+      }
 
       if (!r.ok) {
         const detail = await r.text();
@@ -98,7 +128,10 @@ module.exports = (db) => {
 
       const data    = await r.json();
       const summary = data.content?.[0]?.text ?? '(sin texto)';
-      res.json({ stats, summary });
+      const payload = { stats, summary };
+
+      cache = { at: Date.now(), payload };
+      res.json({ ...payload, cached: false, generated_at: cache.at });
 
     } catch (err) {
       console.error('summary/weekly error:', err);
