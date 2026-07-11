@@ -12,6 +12,31 @@ Cambios **propios de SCR** (Fábrica 3D), los que no van al repo original.
 
 ---
 
+## 2026-07-11 - Página Resumen + arreglo de un bug intermitente que borraba el resumen
+
+El resumen semanal existía **solo como endpoint**: para verlo había que pegarle con `curl`. Ahora hay una página **Summary** (`/summary`) con un botón que lo genera y lo muestra, junto a los números crudos y el desglose por impresora.
+
+**Decisión de diseño: la página no consulta sola al cargar.** Forzar un resumen cuesta plata (llama a Claude), así que es el operador quien decide cuándo pagarlo. El resultado se cachea una hora, y la página muestra si el texto viene de caché y de cuándo es, para que nadie pague una consulta sin querer. El botón **Refresh** es el único que fuerza una llamada nueva.
+
+### El bug que apareció al probarlo
+
+Al verificar la página contra el endpoint real, el resumen volvió **vacío**: `(sin texto)`. La causa: `summary.js` leía `data.content[0].text`, o sea asumía que el texto de Claude está siempre en el **primer** bloque de la respuesta.
+
+No es así. `claude-sonnet-5` **a veces antepone un bloque `thinking`**, y entonces el texto queda en `content[1]`. Comprobado contra la API real: una llamada local devolvió `content[0].type = 'thinking'` y `content[1].type = 'text'`, mientras que producción, con el mismo modelo y a la misma hora, devolvió el texto en `content[0]`.
+
+Por eso era un bug **intermitente**, que es lo peligroso: el resumen funcionaba casi siempre y de vez en cuando salía vacío, sin error, habiendo pagado igual la llamada. Ahora se busca el primer bloque `type === 'text'` en vez de confiar en la posición.
+
+Aprovechando, `summary.js` pasó de **cero tests** a 7 (mockeando `fetch`, nunca el módulo). El de regresión falla sin el arreglo: se verificó con `git stash`.
+
+### Changes
+
+- `client/src/pages/Summary.jsx` (nuevo): página con botón de generar, texto de Claude, tarjetas de estadísticas y tabla por impresora. Panel fijo (no toast) cuando falta la API key, porque es un problema de configuración, no una falla pasajera.
+- `client/src/App.jsx`: item de nav **Summary** y ruta `/summary`.
+- `server/routes/summary.js`: extraer el primer bloque `text` de la respuesta en vez de `content[0]`.
+- `server/tests/summary.test.js` (nuevo): 7 tests. Regresión del bloque `thinking`, 503 sin API key, agregación semanal, caché, `?refresh=1`, 504 por timeout y 502 si Claude falla.
+
+---
+
 ## 2026-07-11 - Rama del PR al día con Joel + limpieza de estilo
 
 La rama `gcode-library` (la del futuro PR) estaba **rota y vieja**: 4 tests fallando y basada en un código de Joel de hace varios commits. Como el `build` de su CI solo corre si `test` pasa, así no era presentable.

@@ -7,6 +7,7 @@ import PrinterDetail from './pages/PrinterDetail';
 import Projects from './pages/Projects';
 import Jobs from './pages/Jobs';
 import Gcodes from './pages/Gcodes';
+import Summary from './pages/Summary';
 import Settings from './pages/Settings';
 import Decommissioned from './pages/Decommissioned';
 
@@ -17,6 +18,7 @@ const NAV_ITEMS = [
   { to: '/projects',       label: 'Projects' },
   { to: '/jobs',           label: 'Jobs' },
   { to: '/gcodes',         label: 'G-codes' },
+  { to: '/summary',        label: 'Summary' },
   { to: '/decommissioned', label: 'Decommissioned' },
   { to: '/settings',       label: 'Settings' },
 ];
@@ -113,6 +115,7 @@ export default function App() {
             <Route path="/projects"        element={<Projects />} />
             <Route path="/jobs"            element={<Jobs />} />
             <Route path="/gcodes"          element={<Gcodes />} />
+            <Route path="/summary"         element={<Summary />} />
             <Route path="/decommissioned"  element={<Decommissioned />} />
             <Route path="/settings"        element={<Settings />} />
           </Routes>

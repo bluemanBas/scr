@@ -126,8 +126,12 @@ module.exports = (db) => {
         return res.status(502).json({ error: 'La API de Claude devolvió un error.', detail });
       }
 
-      const data    = await r.json();
-      const summary = data.content?.[0]?.text ?? '(sin texto)';
+      const data = await r.json();
+
+      // Buscamos el primer bloque de tipo 'text': NO se puede asumir que sea el [0].
+      // Los modelos con razonamiento (claude-sonnet-5) anteponen un bloque 'thinking',
+      // así que leer content[0].text devolvía undefined y el resumen salía vacío.
+      const summary = data.content?.find(b => b.type === 'text')?.text ?? '(sin texto)';
       const payload = { stats, summary };
 
       cache = { at: Date.now(), payload };
