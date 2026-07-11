@@ -12,6 +12,22 @@ Cambios **propios de SCR** (Fábrica 3D), los que no van al repo original.
 
 ---
 
+## 2026-07-11 - Decisión: la traducción NO se construye en el fork
+
+Sin código, pero define lo que no vamos a hacer.
+
+Se iba a construir la estructura de i18n acá. Al investigar apareció el [issue #10](https://github.com/joeltelling/print-farm-manager/issues/10) de upstream: **Joel ya aprobó la feature** ("let's make this happen", 4-jul) y la comunidad (cyryllo, seanlw, xhudaman) ya convergió en **react-i18next**, claves `namespace.key` planas y `en.json` como esquema. Hay voluntarios para polaco, francés y noruego, y **cero código escrito**.
+
+**Se descartó el diseño propio** (hecho a mano, sin dependencias, que era lo coherente con las convenciones del repo: 3 dependencias de runtime, cero providers). Llegar con eso contradiría el consenso del hilo y terminaría en un PR rechazado, o sea el trabajo doble que justamente queremos evitar.
+
+**Lo que hacemos:** aportar solo el `es.json` cuando la infraestructura aterrice upstream. Ya se comentó en el #10 ofreciéndolo, y regalando el dato que le va a explotar en la cara a quien haga la extracción: `formatDurationForInput` y `formatMaterialForInput` (`Projects.jsx:9` y `:17`) producen `2h30m` y `45g`, que **no son texto de UI sino formato de datos** que el servidor parsea. Traducirlos rompe la edición de tiempo y material.
+
+**Consecuencia asumida:** la granja sigue en inglés hasta que alguien cablee el i18n. Si en un par de semanas nadie arranca, conviene reevaluar y tomarlo nosotros.
+
+**Ojo para cuando llegue:** la página **G-codes no existe en el repo de Joel**, así que sus textos no van en el PR del `es.json`. Se traducen en un commit aparte, propio del fork.
+
+---
+
 ## 2026-07-11 - Página Resumen + arreglo de un bug intermitente que borraba el resumen
 
 El resumen semanal existía **solo como endpoint**: para verlo había que pegarle con `curl`. Ahora hay una página **Summary** (`/summary`) con un botón que lo genera y lo muestra, junto a los números crudos y el desglose por impresora.
@@ -34,6 +50,12 @@ Aprovechando, `summary.js` pasó de **cero tests** a 7 (mockeando `fetch`, nunca
 - `client/src/App.jsx`: item de nav **Summary** y ruta `/summary`.
 - `server/routes/summary.js`: extraer el primer bloque `text` de la respuesta en vez de `content[0]`.
 - `server/tests/summary.test.js` (nuevo): 7 tests. Regresión del bloque `thinking`, 503 sin API key, agregación semanal, caché, `?refresh=1`, 504 por timeout y 502 si Claude falla.
+
+### Desplegado y verificado en producción
+
+En hawaiano, no solo "el deploy pasó": se leyó el código **dentro del contenedor corriendo** (`summary.js:134` trae el `find(b => b.type === 'text')`), se confirmó que el cliente construido incluye la página, que la ruta `/summary` responde 200, y que el endpoint devuelve texto real forzando sin caché.
+
+**Pendiente (cosmético):** la página está en inglés pero Claude escribe en español, así que queda una UI inglesa con un párrafo español adentro. Se resuelve cambiando el system prompt a inglés, o esperando el i18n de upstream (ver la entrada de abajo).
 
 ---
 
