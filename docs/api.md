@@ -364,6 +364,52 @@ Returns all G-code records. Each record includes `part_id`, `printer_model`, `fi
 
 `filepath` stores only the filename (not an absolute path) — the server resolves the full path at runtime using its own `server/gcode/` directory. This makes the DB portable across machines.
 
+A G-code reused across Parts shares one physical file: several `gcodes` rows point at the same `filepath` (see `POST /api/gcodes/:id/reuse`). A row with `part_id = null` is a file that lives in the Library but is not attached to any Part.
+
+### `GET /api/gcodes/library`
+
+The G-code Library - one entry per **unique physical file** (rows sharing a `filepath` are collapsed). Powers the G-codes page. No params.
+
+Each entry adds, on top of the base G-code fields: `use_count` (how many Parts use the file; `0` = unused), `project_names` (comma-separated distinct project names using it, `null` if unused), and `size_bytes` (on-disk size, `null` if the file is missing).
+
+```json
+[
+  {
+    "id": 12,
+    "filepath": "1774903214387_bracket.bgcode",
+    "filename": "4x Left Bracket_0.20n_MK4S_5h11m.bgcode",
+    "printer_model": "mk4s",
+    "parts_per_plate": 4,
+    "est_print_secs": 18660,
+    "material_grams": 45,
+    "created_at": 1774903214387,
+    "use_count": 2,
+    "project_names": "Brackets Batch, Spare Parts",
+    "size_bytes": 184320
+  }
+]
+```
+
+### `GET /api/gcodes/:id/download`
+
+Downloads the physical G-code file under its original upload name (`Content-Disposition: attachment`). Returns `404` if the record or the file on disk is missing.
+
+### `GET /api/gcodes/:id/thumbnail`
+
+Returns the slicer-embedded preview image of the print, if the file has one. Response is the raw image with its `Content-Type` (`image/png` or `image/jpeg`) and a 1-day `Cache-Control`. No dependencies - the image is parsed straight out of the file.
+
+Supported formats: `.bgcode` (Prusa binary - reads the embedded PNG/JPG thumbnail block; QOI-only thumbnails are skipped) and `.gcode` (PrusaSlicer/SuperSlicer base64 PNG in comments). `.3mf` is not supported yet.
+
+Returns `404` if the record is missing or the file has no extractable thumbnail. The client uses this to show a small preview on the G-codes page and reuse picker, falling back to a placeholder on `404`.
+
+### `POST /api/gcodes/:id/reuse`
+
+Attaches an existing G-code to another Part **without re-uploading**. Points the new row at the same physical file (no copy on disk), so reusing a file any number of times never duplicates it.
+
+**Body:** `{ "part_id": N }`
+
+Returns `201` with the new G-code record. Copies the source's model, plate count, and estimates. Returns `400` if `part_id` is missing, `404` if the source G-code / target Part / source file is missing, and `409` if the target Part already has a G-code for the same `printer_model`.
+
 ### `POST /api/gcodes/parse-filename`
 
 Parses a G-code filename and returns structured fields without saving anything. Used to pre-fill the upload form and per-gcode estimate inputs.
@@ -417,11 +463,17 @@ Returns the updated G-code record.
 
 ### `DELETE /api/gcodes/:id`
 
-Deletes the DB record and removes the file from disk. Returns `{ "success": true }`.
+**Removes a G-code from its Part - does not delete the file.** If another Part reuses the same file, this row is dropped and the file stays. If this was the file's only usage, the row is kept with `part_id` set to `null` so the file remains in the Library, just unattached. The physical file is never removed here. Returns `{ "success": true }`.
 
-Returns `409` if the gcode is referenced by an active job (`queued`, `uploading`, or `printing`). Wait for the job to finish or cancel it before deleting.
+Returns `409` if the gcode is referenced by an active job (`queued`, `uploading`, or `printing`). Wait for the job to finish or cancel it before removing.
 
-Historical jobs (`finished`, `failed`, `cancelled`) are retained with their `gcode_id` nulled out so job history is preserved.
+For permanent deletion, use `DELETE /api/gcodes/:id/file`.
+
+### `DELETE /api/gcodes/:id/file`
+
+**Permanently deletes the file from the Library.** Removes every `gcodes` row that references the same `filepath` (across all Parts) and deletes the physical file from disk. Returns `{ "success": true }`.
+
+Returns `409` if any usage of the file is referenced by an active job. Historical jobs (`finished`, `failed`, `cancelled`) on any of those rows are retained with their `gcode_id` nulled out so job history is preserved.
 
 ---
 

@@ -2,6 +2,48 @@
 
 ---
 
+## 2026-07-10 - G-code thumbnails (slicer preview images)
+
+The G-codes page and the reuse picker now show the slicer-embedded **preview image** of each print, so files are recognizable at a glance instead of by filename alone. No new dependencies - the image is parsed straight out of the file with `Buffer`/`zlib`.
+
+- **`.bgcode`** (Prusa binary - Core One/XL/MK): parses the file's block structure and serves the embedded PNG/JPG thumbnail (prefers the largest PNG; skips QOI-only, which isn't browser-native). Stops scanning at the first G-code block, so it never reads the multi-MB body.
+- **`.gcode`** (PrusaSlicer/SuperSlicer text): pulls the base64 PNG from the `; thumbnail begin…end` comment block.
+- `.3mf` not supported yet (it's a zip - would need a zip reader).
+
+### Changes
+- `server/gcode-thumbnail.js` (new): `extractThumbnail(filePath) → { mime, buffer } | null`, dependency-free.
+- `server/routes/gcodes.js`: new `GET /api/gcodes/:id/thumbnail` (serves the image with a 1-day `Cache-Control`, `404` when none).
+- `client/src/pages/Gcodes.jsx`: `<Thumb>` preview column (lazy-loaded, placeholder on `404`).
+- `client/src/pages/Projects.jsx`: `<ReuseThumb>` thumbnail in the "Use an existing file…" picker.
+- `docs/api.md`, `docs/web-app.md`, `docs/README.md`: documented the endpoint, the module, and the UI.
+
+**Verification:** parsed a real 12.5 MB `.bgcode` (4 embedded thumbnails: 3× QOI + 1× PNG 380×285) - extractor returned the PNG; uploaded the file through the live API and confirmed `GET /:id/thumbnail` serves a valid `image/png` (46 KB) end-to-end. Client rebuilt via full Vite build.
+
+---
+
+## 2026-07-10 - G-code Library: reusable files + new G-codes page
+
+Two problems: uploaded G-codes could only be seen nested inside their Part (no way to browse or download them), and every project needed its file re-uploaded from the PC. Added a G-code Library page and cross-project file reuse - reuse points at the same physical file, so it never duplicates on disk no matter how many projects use it.
+
+**Data model.** `gcodes.part_id` is now nullable (a startup table-rebuild migration, mirroring the existing `jobs.gcode_id` one). A row with `part_id = null` is a file that lives in the Library attached to no Part - the state a file lands in when removed from its last Part but not deleted. Multiple rows can share one `filepath` (a file reused across Parts); the physical file is reference-counted so it's only unlinked when the last reference is gone.
+
+**Behavior.**
+- **See / download** - new **G-codes** page (`/gcodes`) lists every file once (rows sharing a file are collapsed), with model, plate count, time, material, size, and which projects use it. Each file has Download and a permanent Delete.
+- **Reuse** - a Part's G-code section gains a "Use an existing file…" picker; picking a file attaches it to the Part without re-uploading and without copying it on disk.
+- **Remove ≠ delete** - removing a G-code from a Part now only detaches it (the file stays in the Library); the file is deleted for good only from the G-codes page.
+
+### Changes
+- `server/db.js`: rebuild migration making `gcodes.part_id` nullable (guarded by `PRAGMA table_info`).
+- `server/routes/gcodes.js`: new `GET /library` (unique files + `use_count`/`project_names`/`size_bytes`), `GET /:id/download`, `POST /:id/reuse` (same-file, no copy). `DELETE /:id` is now remove-from-Part (drops the row, or nulls `part_id` if it was the last usage - never touches the file); new `DELETE /:id/file` is the permanent delete (purges all rows sharing the file + unlinks it). Both delete paths keep the active-job `409` guard.
+- `client/src/pages/Gcodes.jsx` (new): the Library page - search, download, delete, "used by" / unused.
+- `client/src/App.jsx`: `G-codes` nav item + `/gcodes` route.
+- `client/src/pages/Projects.jsx`: `ReuseGcodePicker` under the upload panel; per-Part delete reworded to "Remove from part" to match the new detach semantics.
+- `docs/api.md`, `docs/database.md`, `docs/web-app.md`, `docs/README.md`: documented the endpoints, nullable `part_id` + reference-counting, and the new page.
+
+**Verification:** exercised the whole lifecycle against a real SQLite DB (`node:sqlite`) with real files - library grouping, reuse without disk duplication, remove-from-part keeping the file (incl. the last-usage → unattached case), download, and permanent delete (25/25 checks). Client JSX validated via esbuild (no `client/node_modules` locally to run a full Vite build).
+
+---
+
 ## 2026-07-07 — Dockerized development workflow (`dev` profile)
 
 Following up on issue #15 (developer couldn't get a containerized dev environment running: `ERROR: client/dist/index.html not found` when trying to run the server for local dev) and the maintainer's own admission there that the `Dockerfile` "was just focused on production... I've been lazy to put together a development target" — added a Docker-based alternative to the native `npm run dev` workflow. Purely additive: the native workflow in the README/Installation Guide is unchanged, and the production `docker compose up` path is unchanged (still builds the same `runtime` target it always has, now pinned explicitly).

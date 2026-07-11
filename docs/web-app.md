@@ -11,6 +11,7 @@ The React single-page application served by Vite. In development, Vite runs on p
 - **Settings page** — CSV import UI for the printer registry, with flagged-row resolution
 - **Projects page** — project/part/G-code management and production tracking
 - **Jobs page** — live job queue with filters and cancel action
+- **G-codes page** - the G-code Library: every file listed once, with download, permanent delete, and reuse across projects
 
 ## Key Files
 
@@ -26,6 +27,7 @@ The React single-page application served by Vite. In development, Vite runs on p
 | `client/src/pages/Dashboard.jsx` | TV command center dashboard |
 | `client/src/pages/Projects.jsx` | Project/Part/G-code management |
 | `client/src/pages/Jobs.jsx` | Job queue table with filters |
+| `client/src/pages/Gcodes.jsx` | G-code Library - all files, download, delete, reuse |
 | `client/src/components/PollTimer.jsx` | Shared circular refresh-countdown ring used by Fleet and Dashboard |
 | `client/index.html` | HTML shell with dark background baseline CSS |
 | `client/vite.config.js` | Vite config — port 5173, `/api` proxy to 3000 |
@@ -45,6 +47,7 @@ The React single-page application served by Vite. In development, Vite runs on p
 │  Printers         │                       │
 │  Projects         │                       │
 │  Jobs             │                       │
+│  G-codes          │                       │
 │  Decommissioned   │                       │
 │  Settings         │                       │
 └───────────────────┴───────────────────────┘
@@ -271,6 +274,26 @@ Live job queue that polls `GET /api/jobs` every 15 seconds.
 | cancelled | near-black | muted gray |
 
 **"Awaiting Sign-off" badge (display-only):** a row whose `jobs.status` is still `printing` can belong to a printer that is already held for operator confirmation (for example a printer that transitions `PRINTING` -> `IDLE` directly, with no observable `FINISHED`/`STOPPED` in between two polls). `GET /api/jobs` joins `printer_is_held` and `printer_status` for exactly this case; `displayJobStatus()` in Jobs.jsx renders such a row as "Awaiting Sign-off" (green) instead of "Printing" (blue) so the Jobs page agrees with Fleet/Dashboard, which already reflect the hold via `is_held`. The underlying job row is untouched: it still says `printing` until the operator resolves it via Set Ready or Bad Print, at which point it becomes `finished`/`failed` normally.
+
+## G-codes Page
+
+`client/src/pages/Gcodes.jsx`
+
+The G-code Library: every uploaded file, listed **once** (fetched from `GET /api/gcodes/library`, which collapses rows that share a physical file). A client-side search box filters by filename, printer model, or project name.
+
+**Layout:** a responsive card gallery (`repeat(auto-fill, minmax(230px, 1fr))`), not a table. Each card is one physical file:
+
+- **Preview** (200 px tall): the slicer-embedded thumbnail via `GET /api/gcodes/:id/thumbnail` (`<GalleryThumb>`), lazy-loaded. On a 404 (no thumbnail in the file) it falls back to a 🖼️ emoji panel. The reuse picker on the Projects page shows the same image at thumbnail size (`<ReuseThumb>`).
+- **Filename**, truncated with a `title` tooltip.
+- **Meta row:** printer model (monospace chip), parts per plate, estimated print time, material grams. The last two are omitted when the slicer did not record them.
+- **"Used by":** the distinct projects using the file, or an italic *Unused* when `use_count` is 0 (a file kept in the Library but attached to no Part).
+- **Footer:** file size on disk (`fs.statSync`) and upload date.
+
+**Actions per card:**
+- **Download:** a plain `<a>` to `GET /api/gcodes/:id/download` (downloads under the original filename).
+- **Delete:** `DELETE /api/gcodes/:id/file` behind `useConfirm({ danger: true })`. This is the **permanent** delete: it removes every row pointing at the file and unlinks it from disk. The confirm message warns when the file is still used by one or more parts.
+
+Reuse itself happens on the **Projects page**, not here: a Part's G-code section has a "Use an existing file" picker (`ReuseGcodePicker`) that lists the library and calls `POST /api/gcodes/:id/reuse` to attach a file to the Part without re-uploading. Removing a G-code from a Part there (`DELETE /api/gcodes/:id`) only **detaches** it: the physical file stays in this Library.
 
 ## Live Update Pattern
 
