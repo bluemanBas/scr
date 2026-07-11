@@ -819,7 +819,7 @@ function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm, filamen
   async function deleteGcode(gcodeId) {
     const ok = await onConfirm({
       title: 'Remove G-code from part',
-      message: 'Remove this G-code from this part? The file stays in the G-code Library — delete it there to remove it for good.',
+      message: 'Remove this G-code from this part? The file stays in the G-code Library - delete it there to remove it for good.',
       confirmLabel: 'Remove',
       danger: true,
     });

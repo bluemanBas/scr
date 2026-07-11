@@ -368,7 +368,7 @@ A G-code reused across Parts shares one physical file: several `gcodes` rows poi
 
 ### `GET /api/gcodes/library`
 
-The G-code Library — one entry per **unique physical file** (rows sharing a `filepath` are collapsed). Powers the G-codes page. No params.
+The G-code Library - one entry per **unique physical file** (rows sharing a `filepath` are collapsed). Powers the G-codes page. No params.
 
 Each entry adds, on top of the base G-code fields: `use_count` (how many Parts use the file; `0` = unused), `project_names` (comma-separated distinct project names using it, `null` if unused), and `size_bytes` (on-disk size, `null` if the file is missing).
 
@@ -396,9 +396,9 @@ Downloads the physical G-code file under its original upload name (`Content-Disp
 
 ### `GET /api/gcodes/:id/thumbnail`
 
-Returns the slicer-embedded preview image of the print, if the file has one. Response is the raw image with its `Content-Type` (`image/png` or `image/jpeg`) and a 1-day `Cache-Control`. No dependencies — the image is parsed straight out of the file.
+Returns the slicer-embedded preview image of the print, if the file has one. Response is the raw image with its `Content-Type` (`image/png` or `image/jpeg`) and a 1-day `Cache-Control`. No dependencies - the image is parsed straight out of the file.
 
-Supported formats: `.bgcode` (Prusa binary — reads the embedded PNG/JPG thumbnail block; QOI-only thumbnails are skipped) and `.gcode` (PrusaSlicer/SuperSlicer base64 PNG in comments). `.3mf` is not supported yet.
+Supported formats: `.bgcode` (Prusa binary - reads the embedded PNG/JPG thumbnail block; QOI-only thumbnails are skipped) and `.gcode` (PrusaSlicer/SuperSlicer base64 PNG in comments). `.3mf` is not supported yet.
 
 Returns `404` if the record is missing or the file has no extractable thumbnail. The client uses this to show a small preview on the G-codes page and reuse picker, falling back to a placeholder on `404`.
 
@@ -463,7 +463,7 @@ Returns the updated G-code record.
 
 ### `DELETE /api/gcodes/:id`
 
-**Removes a G-code from its Part — does not delete the file.** If another Part reuses the same file, this row is dropped and the file stays. If this was the file's only usage, the row is kept with `part_id` set to `null` so the file remains in the Library, just unattached. The physical file is never removed here. Returns `{ "success": true }`.
+**Removes a G-code from its Part - does not delete the file.** If another Part reuses the same file, this row is dropped and the file stays. If this was the file's only usage, the row is kept with `part_id` set to `null` so the file remains in the Library, just unattached. The physical file is never removed here. Returns `{ "success": true }`.
 
 Returns `409` if the gcode is referenced by an active job (`queued`, `uploading`, or `printing`). Wait for the job to finish or cancel it before removing.
 

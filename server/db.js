@@ -250,7 +250,7 @@ if (partIdCol && partIdCol.notnull === 1) {
     ALTER TABLE gcodes_migrated RENAME TO gcodes;
     PRAGMA foreign_keys = ON;
   `);
-  console.log('[db] Migrated gcodes — part_id is now nullable (Library-only files supported)');
+  console.log('[db] Migrated gcodes - part_id is now nullable (Library-only files supported)');
 }
 
 // Backfill decommission events for printers that were decommissioned before the

@@ -1,4 +1,4 @@
-# Changelog — SCR (fork)
+# Changelog - SCR (fork)
 
 Cambios **propios de SCR** (Fábrica 3D), los que no van al repo original.
 
@@ -12,22 +12,41 @@ Cambios **propios de SCR** (Fábrica 3D), los que no van al repo original.
 
 ---
 
-## 2026-07-11 — Biblioteca de G-codes (nuestra versión, pendiente upstream)
+## 2026-07-11 - Rama del PR al día con Joel + limpieza de estilo
+
+La rama `gcode-library` (la del futuro PR) estaba **rota y vieja**: 4 tests fallando y basada en un código de Joel de hace varios commits. Como el `build` de su CI solo corre si `test` pasa, así no era presentable.
+
+Se rehízo sobre su `main` actual y quedó **en un solo commit, con 408 tests verdes**. El código de la feature ya era idéntico al de nuestro `main`; lo que le faltaba eran los tests corregidos.
+
+De paso se corrigieron dos cosas que también estaban en nuestro `main`:
+
+- **La doc mentía.** `docs/web-app.md` describía la página G-codes como una **tabla con columnas**, pero terminó siendo una **galería de tarjetas** con miniatura de 200 px. Reescrita para que describa lo que el código realmente hace.
+- **Guiones largos.** La regla 3 de `CLAUDE.md` (de Joel) los prohíbe en prosa, comentarios, mensajes de commit y textos de UI nuevos. Se limpiaron solo **las líneas que agregamos nosotros**; las suyas quedaron intactas, como pide su propia regla. Se conservó el `'—'` que usa como símbolo de "sin dato" en la UI, porque es su idioma (ver `Jobs.jsx`, `PrinterDetail.jsx`).
+
+### Cambios
+
+- `docs/web-app.md`: la sección G-codes ahora describe la galería real (tarjetas, miniatura de 200 px, fallback 🖼️), no una tabla.
+- `server/routes/gcodes.js`, `server/gcode-thumbnail.js`, `server/db.js`, `server/routes/parts.js`, `server/routes/projects.js`, `client/src/pages/Gcodes.jsx`, `client/src/pages/Projects.jsx`, tests y docs: guiones largos fuera de las líneas propias.
+- `CHANGELOG-SCR.md`: mismo criterio de guiones.
+
+---
+
+## 2026-07-11 - Biblioteca de G-codes (nuestra versión, pendiente upstream)
 
 Página **G-codes** nueva: galería con todos los archivos, cada uno **una sola vez**, con buscador, descarga y borrado definitivo.
 
-- **Reuso entre proyectos:** un archivo se adjunta a otra parte **sin re-subirlo y sin duplicarlo en disco** — las filas comparten el mismo `filepath` y el archivo físico solo se borra cuando ya nadie lo referencia.
+- **Reuso entre proyectos:** un archivo se adjunta a otra parte **sin re-subirlo y sin duplicarlo en disco** - las filas comparten el mismo `filepath` y el archivo físico solo se borra cuando ya nadie lo referencia.
 - **Quitar ≠ borrar:** sacar un G-code de una parte solo lo desvincula; el archivo sigue en la biblioteca aunque no lo use ningún proyecto. El borrado definitivo se hace desde la página G-codes.
 - **Miniaturas reales:** se extrae la imagen que el slicer embebe en el archivo (`.bgcode` de Prusa y `.gcode`), **sin agregar dependencias** (`server/gcode-thumbnail.js`).
 - **Esquema:** `gcodes.part_id` pasa a ser nulo (un archivo puede vivir en la biblioteca sin parte). Migración puntual al arrancar, mismo patrón que la de `jobs.gcode_id`.
 
 Endpoints: `GET /api/gcodes/library`, `/:id/download`, `/:id/reuse`, `/:id/thumbnail`; `DELETE /:id` (desvincula) y `DELETE /:id/file` (borra de verdad).
 
-> **Ojo — divergencia con Joel.** El "quitar ≠ borrar" cambia el contrato de `DELETE /api/gcodes/:id` (en su código ese endpoint borra el archivo), así que hubo que **adaptar sus tests** a la nueva semántica. Está abierto el [issue #34](https://github.com/joeltelling/print-farm-manager/issues/34) preguntándole qué comportamiento prefiere; si elige el conservador, esta divergencia desaparece. La rama `gcode-library` tiene la versión limpia para el PR.
+> **Ojo - divergencia con Joel.** El "quitar ≠ borrar" cambia el contrato de `DELETE /api/gcodes/:id` (en su código ese endpoint borra el archivo), así que hubo que **adaptar sus tests** a la nueva semántica. Está abierto el [issue #34](https://github.com/joeltelling/print-farm-manager/issues/34) preguntándole qué comportamiento prefiere; si elige el conservador, esta divergencia desaparece. La rama `gcode-library` tiene la versión limpia para el PR.
 
 ---
 
-## 2026-07-11 — Sincronización con upstream + fidelidad del fork
+## 2026-07-11 - Sincronización con upstream + fidelidad del fork
 
 Traídos los últimos commits de Joel (`fix(status)` de la página Jobs, docs, CLAUDE.md reescrito + skills). Merge sin conflictos; 391 tests pasan.
 
@@ -38,7 +57,7 @@ Traídos los últimos commits de Joel (`fix(status)` de la página Jobs, docs, C
 
 ---
 
-## 2026-07-10 — Resumen semanal: caché + timeout
+## 2026-07-10 - Resumen semanal: caché + timeout
 
 Endurecido `GET /api/summary/weekly`, que antes hacía una llamada **pagada** a Claude en *cada* request y podía quedarse colgado para siempre.
 
@@ -49,19 +68,19 @@ Archivo: `server/routes/summary.js`.
 
 ---
 
-## 2026-07-09 — Endpoint de resumen semanal con Claude
+## 2026-07-09 - Endpoint de resumen semanal con Claude
 
 Primera feature con IA. `GET /api/summary/weekly` agrega los datos de la semana (trabajos, piezas, horas-máquina, material, fallas, desglose por impresora) con SQL, se los pasa a Claude y devuelve un resumen en lenguaje natural (español chileno).
 
 - Usa `fetch` nativo, **sin el SDK** → cero dependencias nuevas, no se toca el lockfile.
 - Modelo `claude-sonnet-5`; la key se lee de `process.env.ANTHROPIC_API_KEY` (fuera de git, en el `.env` de hawaiano).
-- Sin la key, devuelve `503` y no rompe nada — la feature queda apagada por defecto.
+- Sin la key, devuelve `503` y no rompe nada - la feature queda apagada por defecto.
 
 Archivos: `server/routes/summary.js` (nuevo) + 2 líneas en `server/index.js`.
 
 ---
 
-## 2026-07-08 — Fix: nombre de imagen en minúsculas
+## 2026-07-08 - Fix: nombre de imagen en minúsculas
 
 El build fallaba porque `ghcr.io/bluemanBas/scr` lleva mayúscula y Docker exige minúsculas. En `.github/workflows/docker-publish.yml` se fijó `IMAGE_NAME: bluemanbas/scr` en vez de `${{ github.repository }}`.
 

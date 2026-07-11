@@ -101,7 +101,7 @@ module.exports = (db) => {
     res.json(gcodes);
   });
 
-  // GET /api/gcodes/library — the G-code Library: one row per unique physical file.
+  // GET /api/gcodes/library - the G-code Library: one row per unique physical file.
   // A file reused across Parts shares a single filepath, so grouping by filepath
   // collapses those into one entry and reports how many Parts/Projects use it.
   router.get('/library', (req, res) => {
@@ -134,7 +134,7 @@ module.exports = (db) => {
     res.json(rows);
   });
 
-  // GET /api/gcodes/:id/download — download the original G-code file
+  // GET /api/gcodes/:id/download - download the original G-code file
   router.get('/:id/download', (req, res) => {
     const gcode = db.prepare('SELECT * FROM gcodes WHERE id = ?').get(req.params.id);
     if (!gcode) return res.status(404).json({ error: 'G-code not found' });
@@ -147,7 +147,7 @@ module.exports = (db) => {
     res.download(fullPath, gcode.filename);
   });
 
-  // GET /api/gcodes/:id/thumbnail — the slicer-embedded preview image, if any.
+  // GET /api/gcodes/:id/thumbnail - the slicer-embedded preview image, if any.
   // 404 when the file has no embedded thumbnail (or the format isn't supported).
   router.get('/:id/thumbnail', (req, res) => {
     const gcode = db.prepare('SELECT * FROM gcodes WHERE id = ?').get(req.params.id);
@@ -162,7 +162,7 @@ module.exports = (db) => {
     res.send(thumb.buffer);
   });
 
-  // POST /api/gcodes/:id/reuse — attach an existing G-code to another Part.
+  // POST /api/gcodes/:id/reuse - attach an existing G-code to another Part.
   // Points the new row at the SAME physical file (no copy), so reusing a file
   // any number of times never duplicates it on disk. Body: { part_id }.
   router.post('/:id/reuse', (req, res) => {
@@ -329,7 +329,7 @@ module.exports = (db) => {
     res.json(db.prepare('SELECT * FROM gcodes WHERE id = ?').get(req.params.id));
   });
 
-  // DELETE /api/gcodes/:id — remove a G-code from its Part. Does NOT delete the
+  // DELETE /api/gcodes/:id - remove a G-code from its Part. Does NOT delete the
   // file: if other Parts reuse the same file it just drops this row; if this was
   // the only usage the row is kept as an unattached Library entry (part_id NULL).
   // Permanent deletion is DELETE /api/gcodes/:id/file (from the G-code Library).
@@ -341,7 +341,7 @@ module.exports = (db) => {
       "SELECT id FROM jobs WHERE gcode_id = ? AND status IN ('queued', 'uploading', 'printing') LIMIT 1"
     ).get(req.params.id);
     if (activeJob) {
-      return res.status(409).json({ error: 'Cannot remove — this G-code has an active job in progress.' });
+      return res.status(409).json({ error: 'Cannot remove - this G-code has an active job in progress.' });
     }
 
     const otherUsage = db.prepare(
@@ -349,17 +349,17 @@ module.exports = (db) => {
     ).get(gcode.filepath, req.params.id);
 
     if (otherUsage) {
-      // Another Part still references the file — just drop this row.
+      // Another Part still references the file - just drop this row.
       db.prepare("UPDATE jobs SET gcode_id = NULL WHERE gcode_id = ?").run(req.params.id);
       db.prepare('DELETE FROM gcodes WHERE id = ?').run(req.params.id);
     } else {
-      // Last usage — keep the file in the Library, now unattached.
+      // Last usage - keep the file in the Library, now unattached.
       db.prepare('UPDATE gcodes SET part_id = NULL WHERE id = ?').run(req.params.id);
     }
     res.json({ success: true });
   });
 
-  // DELETE /api/gcodes/:id/file — permanently delete the file from the Library:
+  // DELETE /api/gcodes/:id/file - permanently delete the file from the Library:
   // removes every row that references it (across all Parts) and the file on disk.
   router.delete('/:id/file', (req, res) => {
     const gcode = db.prepare('SELECT * FROM gcodes WHERE id = ?').get(req.params.id);
@@ -373,7 +373,7 @@ module.exports = (db) => {
       LIMIT 1
     `).get(gcode.filepath);
     if (activeJob) {
-      return res.status(409).json({ error: 'Cannot delete — this file has an active job in progress.' });
+      return res.status(409).json({ error: 'Cannot delete - this file has an active job in progress.' });
     }
 
     // Detach historical jobs from every row referencing this file, then remove

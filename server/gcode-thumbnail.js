@@ -1,10 +1,10 @@
 // Extracts the slicer-embedded preview image from a G-code file, if present.
-// No external dependencies — pure Buffer parsing + Node's zlib.
+// No external dependencies - pure Buffer parsing + Node's zlib.
 //
 // Supported:
-//   .bgcode — Prusa binary G-code (https://github.com/prusa3d/libbgcode)
-//   .gcode  — PrusaSlicer/SuperSlicer text G-code (base64 PNG in comments)
-// Not yet supported: .3mf (zip — would need a zip reader).
+//   .bgcode - Prusa binary G-code (https://github.com/prusa3d/libbgcode)
+//   .gcode - PrusaSlicer/SuperSlicer text G-code (base64 PNG in comments)
+// Not yet supported: .3mf (zip - would need a zip reader).
 //
 // Returns { mime, buffer } for the best available image, or null if none.
 const fs = require('fs');
@@ -43,7 +43,7 @@ function extractFromBgcode(buf) {
     }
 
     const dataLen = compression !== 0 ? compressed : uncompressed;
-    if (dataLen == null || p + dataLen > buf.length) break; // malformed — bail
+    if (dataLen == null || p + dataLen > buf.length) break; // malformed - bail
     const dataStart = p, dataEnd = p + dataLen;
 
     if (type === BLOCK_THUMBNAIL && THUMB_MIME[fmt] && (compression === 0 || compression === 1)) {

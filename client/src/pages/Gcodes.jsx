@@ -105,7 +105,7 @@ export default function Gcodes() {
       {toastEl}
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>G-codes</h1>
       <p style={{ color: '#64748b', fontSize: 13, marginTop: 0, marginBottom: 16 }}>
-        Every uploaded G-code file. Each file appears once — reusing it across projects never duplicates it.
+        Every uploaded G-code file. Each file appears once - reusing it across projects never duplicates it.
       </p>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>

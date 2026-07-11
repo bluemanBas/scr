@@ -192,7 +192,7 @@ describe('DELETE /api/parts/:id', () => {
 
     await request(app).delete(`/api/parts/${partA}`);
 
-    // Part B still references the file — deleting part A must not unlink it
+    // Part B still references the file - deleting part A must not unlink it
     expect(fs.existsSync(filePath)).toBe(true);
     expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(keptId)).toBeDefined();
 

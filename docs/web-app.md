@@ -11,7 +11,7 @@ The React single-page application served by Vite. In development, Vite runs on p
 - **Settings page** — CSV import UI for the printer registry, with flagged-row resolution
 - **Projects page** — project/part/G-code management and production tracking
 - **Jobs page** — live job queue with filters and cancel action
-- **G-codes page** — the G-code Library: every file listed once, with download, permanent delete, and reuse across projects
+- **G-codes page** - the G-code Library: every file listed once, with download, permanent delete, and reuse across projects
 
 ## Key Files
 
@@ -27,7 +27,7 @@ The React single-page application served by Vite. In development, Vite runs on p
 | `client/src/pages/Dashboard.jsx` | TV command center dashboard |
 | `client/src/pages/Projects.jsx` | Project/Part/G-code management |
 | `client/src/pages/Jobs.jsx` | Job queue table with filters |
-| `client/src/pages/Gcodes.jsx` | G-code Library — all files, download, delete, reuse |
+| `client/src/pages/Gcodes.jsx` | G-code Library - all files, download, delete, reuse |
 | `client/src/components/PollTimer.jsx` | Shared circular refresh-countdown ring used by Fleet and Dashboard |
 | `client/index.html` | HTML shell with dark background baseline CSS |
 | `client/vite.config.js` | Vite config — port 5173, `/api` proxy to 3000 |

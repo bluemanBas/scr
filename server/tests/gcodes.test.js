@@ -308,7 +308,7 @@ function insertGcode(filename, filepath, partId = 1, model = 'mk4s') {
   return row.lastInsertRowid;
 }
 
-// DELETE /:id removes a G-code from its Part — it never deletes the file.
+// DELETE /:id removes a G-code from its Part - it never deletes the file.
 // Permanent deletion lives on DELETE /:id/file (see the next block).
 describe('DELETE /api/gcodes/:id (remove from part)', () => {
   test('returns 404 for unknown id', async () => {
@@ -326,7 +326,7 @@ describe('DELETE /api/gcodes/:id (remove from part)', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    // The row survives with no Part — the file stays in the Library
+    // The row survives with no Part - the file stays in the Library
     const row = db.prepare('SELECT part_id FROM gcodes WHERE id = ?').get(id);
     expect(row).toBeDefined();
     expect(row.part_id).toBeNull();
@@ -490,7 +490,7 @@ describe('GET /api/gcodes/library', () => {
     const filePath = path.join(GCODE_DIR, filename);
     fs.writeFileSync(filePath, 'fake gcode');
     const id = insertGcode(filename, filename);
-    await request(app).delete(`/api/gcodes/${id}`); // detach — stays in the Library
+    await request(app).delete(`/api/gcodes/${id}`); // detach - stays in the Library
 
     const res = await request(app).get('/api/gcodes/library');
 
@@ -517,7 +517,7 @@ describe('POST /api/gcodes/:id/reuse', () => {
     expect(res.body.filepath).toBe(filename);      // points at the same physical file
     expect(res.body.printer_model).toBe('mk4s');   // metadata copied from the source
 
-    // A copy would have landed as "<timestamp>_<filename>" — assert only the original exists.
+    // A copy would have landed as "<timestamp>_<filename>" - assert only the original exists.
     // (Counting the whole directory is unreliable: jest workers share server/gcode/.)
     const onDisk = fs.readdirSync(GCODE_DIR).filter(f => f.includes(filename));
     expect(onDisk).toEqual([filename]);

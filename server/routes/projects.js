@@ -87,7 +87,7 @@ module.exports = (db, scheduler = null) => {
       for (const part of parts) {
         db.prepare('DELETE FROM jobs WHERE part_id = ?').run(part.id);
 
-        // Delete each gcode row, then its file — but only if no other Part reuses it.
+        // Delete each gcode row, then its file - but only if no other Part reuses it.
         // A reused G-code is backed by a single physical file shared across rows, so
         // unlinking unconditionally would pull the file out from under Parts that
         // still reference it (including Parts outside this project).

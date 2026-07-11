@@ -118,9 +118,9 @@ CREATE TABLE IF NOT EXISTS gcodes (
 );
 ```
 
-`part_id` is **nullable** (a startup migration relaxes the old `NOT NULL` on existing installs — see below). A row with `part_id = null` is a file that lives in the G-code Library without being attached to any Part — the state a file lands in when it is removed from its last Part but not deleted outright.
+`part_id` is **nullable** (a startup migration relaxes the old `NOT NULL` on existing installs - see below). A row with `part_id = null` is a file that lives in the G-code Library without being attached to any Part - the state a file lands in when it is removed from its last Part but not deleted outright.
 
-**File reuse & reference counting.** Reusing a G-code on another Part (`POST /api/gcodes/:id/reuse`) inserts a new row pointing at the **same `filepath`** — the physical file is never copied, so reuse never duplicates it on disk. Because several rows can back one file, `DELETE /api/gcodes/:id` (remove-from-Part) only ever drops rows; the physical file is deleted only by `DELETE /api/gcodes/:id/file`, which removes every row sharing that `filepath` and unlinks the file.
+**File reuse & reference counting.** Reusing a G-code on another Part (`POST /api/gcodes/:id/reuse`) inserts a new row pointing at the **same `filepath`** - the physical file is never copied, so reuse never duplicates it on disk. Because several rows can back one file, `DELETE /api/gcodes/:id` (remove-from-Part) only ever drops rows; the physical file is deleted only by `DELETE /api/gcodes/:id/file`, which removes every row sharing that `filepath` and unlinks the file.
 
 **Uniqueness on `(part_id, printer_model)`** is enforced at the application layer, not as a DB constraint, so the error message shown to the operator is clear and specific.
 

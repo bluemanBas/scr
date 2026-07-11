@@ -147,7 +147,7 @@ describe('DELETE /api/projects/:id', () => {
     const res = await request(app).delete(`/api/projects/${doomedProj}`);
 
     expect(res.status).toBe(200);
-    // The other project still references the file — it must survive
+    // The other project still references the file - it must survive
     expect(fs.existsSync(filePath)).toBe(true);
     expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(keptId)).toBeDefined();
 
@@ -168,7 +168,7 @@ describe('DELETE /api/projects/:id', () => {
     const res = await request(app).delete(`/api/projects/${projId}`);
 
     expect(res.status).toBe(200);
-    // Nothing references it any more — the file goes with the project
+    // Nothing references it any more - the file goes with the project
     expect(fs.existsSync(filePath)).toBe(false);
   });
 });

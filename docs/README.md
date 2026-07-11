@@ -68,7 +68,7 @@ print-farm-manager/
 │   │       ├── Dashboard.jsx      # Fleet summary (TV mode)
 │   │       ├── Projects.jsx       # Project/Part/G-code management
 │   │       ├── Jobs.jsx           # Job queue table
-│   │       └── Gcodes.jsx         # G-code Library — all files, download, delete, reuse
+│   │       └── Gcodes.jsx         # G-code Library - all files, download, delete, reuse
 ├── docs/                 # This folder
 ├── .github/workflows/    # CI — see docs/docker-publish.md
 ├── ARCHITECTURE.md       # Full product spec and phase planning
