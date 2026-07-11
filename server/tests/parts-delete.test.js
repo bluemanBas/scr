@@ -181,6 +181,24 @@ describe('DELETE /api/parts/:id', () => {
     expect(fs.existsSync(filePath)).toBe(false);
   });
 
+  test('keeps the physical file when another part reuses it', async () => {
+    const partA    = insertPart();
+    const partB    = insertPart();
+    const filename = `shared_${Date.now()}.bgcode`;
+    const filePath = path.join(GCODE_DIR, filename);
+    fs.writeFileSync(filePath, 'fake gcode');
+    insertGcode(partA, filename);
+    const keptId = insertGcode(partB, filename); // same physical file, reused by part B
+
+    await request(app).delete(`/api/parts/${partA}`);
+
+    // Part B still references the file — deleting part A must not unlink it
+    expect(fs.existsSync(filePath)).toBe(true);
+    expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(keptId)).toBeDefined();
+
+    fs.unlinkSync(filePath);
+  });
+
   test('succeeds even when gcode file is missing from disk', async () => {
     const partId = insertPart();
     insertGcode(partId, `ghost_${Date.now()}.bgcode`); // no file written

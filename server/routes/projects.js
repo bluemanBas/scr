@@ -87,12 +87,23 @@ module.exports = (db, scheduler = null) => {
       for (const part of parts) {
         db.prepare('DELETE FROM jobs WHERE part_id = ?').run(part.id);
 
+        // Delete each gcode row, then its file — but only if no other Part reuses it.
+        // A reused G-code is backed by a single physical file shared across rows, so
+        // unlinking unconditionally would pull the file out from under Parts that
+        // still reference it (including Parts outside this project).
         const gcodes = db.prepare('SELECT * FROM gcodes WHERE part_id = ?').all(part.id);
         for (const gcode of gcodes) {
-          const basename = gcode.filepath.split(/[\\/]/).pop();
-          const fullPath = path.join(GCODE_DIR, basename);
-          if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+          const sharedByOthers = db.prepare(
+            'SELECT 1 FROM gcodes WHERE filepath = ? AND id != ? LIMIT 1'
+          ).get(gcode.filepath, gcode.id);
+
           db.prepare('DELETE FROM gcodes WHERE id = ?').run(gcode.id);
+
+          if (!sharedByOthers) {
+            const basename = gcode.filepath.split(/[\\/]/).pop();
+            const fullPath = path.join(GCODE_DIR, basename);
+            if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+          }
         }
 
         db.prepare('DELETE FROM parts WHERE id = ?').run(part.id);

@@ -219,13 +219,23 @@ module.exports = (db) => {
       // (Active uploading/printing jobs are already blocked above.)
       db.prepare('DELETE FROM jobs WHERE part_id = ?').run(req.params.id);
 
-      // Delete each gcode: remove physical file, then DB record
+      // Delete each gcode row, then its file — but only if no other Part reuses it.
+      // A reused G-code is backed by a single physical file shared across rows, so
+      // unlinking unconditionally would pull the file out from under Parts that
+      // still reference it.
       const gcodes = db.prepare('SELECT * FROM gcodes WHERE part_id = ?').all(req.params.id);
       for (const gcode of gcodes) {
-        const gcodeFilename = gcode.filepath.split(/[\\/]/).pop();
-        const fullPath = path.join(GCODE_DIR, gcodeFilename);
-        if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+        const sharedByOthers = db.prepare(
+          'SELECT 1 FROM gcodes WHERE filepath = ? AND id != ? LIMIT 1'
+        ).get(gcode.filepath, gcode.id);
+
         db.prepare('DELETE FROM gcodes WHERE id = ?').run(gcode.id);
+
+        if (!sharedByOthers) {
+          const gcodeFilename = gcode.filepath.split(/[\\/]/).pop();
+          const fullPath = path.join(GCODE_DIR, gcodeFilename);
+          if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+        }
       }
 
       db.prepare('DELETE FROM parts WHERE id = ?').run(req.params.id);
