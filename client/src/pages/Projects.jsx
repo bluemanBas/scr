@@ -620,6 +620,115 @@ function GcodeEstimateRow({ gc, onDelete, onSaved, filamentTypes, filamentColors
   );
 }
 
+// Small slicer preview thumbnail for the reuse picker (404 → placeholder box).
+function ReuseThumb({ id, size = 34 }) {
+  const [ok, setOk] = useState(true);
+  const box = { width: size, height: size, borderRadius: 4, flexShrink: 0, background: '#0a0f1a', border: '1px solid #1e2433' };
+  if (!ok) return <div style={box} />;
+  return <img src={`/api/gcodes/${id}/thumbnail`} alt="" loading="lazy" onError={() => setOk(false)} style={{ ...box, objectFit: 'contain' }} />;
+}
+
+// Reuse an already-uploaded G-code on this Part without re-uploading it from the
+// PC. Points at the same physical file (no duplicate on disk) via /reuse.
+function ReuseGcodePicker({ part, onReused }) {
+  const [open, setOpen]     = useState(false);
+  const [files, setFiles]   = useState([]);
+  const [query, setQuery]   = useState('');
+  const [error, setError]   = useState(null);
+  const [busyId, setBusyId] = useState(null);
+
+  useEffect(() => {
+    if (!open) return;
+    fetch('/api/gcodes/library').then(r => r.json()).then(setFiles).catch(() => {});
+  }, [open]);
+
+  async function useFile(gc) {
+    setBusyId(gc.id);
+    setError(null);
+    const res = await fetch(`/api/gcodes/${gc.id}/reuse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ part_id: part.id }),
+    });
+    setBusyId(null);
+    if (res.ok) {
+      setOpen(false);
+      setQuery('');
+      onReused();
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error || 'Could not reuse this file.');
+    }
+  }
+
+  const secondaryBtn = {
+    background: '#1e293b', color: '#94a3b8', border: '1px solid #2d3748',
+    borderRadius: 6, padding: '6px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+  };
+
+  if (!open) {
+    return <button onClick={() => setOpen(true)} style={secondaryBtn}>Use an existing file…</button>;
+  }
+
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? files.filter(f => `${f.filename} ${f.printer_model || ''} ${f.project_names || ''}`.toLowerCase().includes(q))
+    : files;
+
+  return (
+    <div style={{ border: '1px solid #2d3748', borderRadius: 6, padding: 10, background: '#0a0f1a' }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+        <input
+          type="text"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Search file, model, project…"
+          autoFocus
+          style={{ ...inputSx, flex: 1 }}
+        />
+        <button onClick={() => { setOpen(false); setQuery(''); setError(null); }} style={secondaryBtn}>Cancel</button>
+      </div>
+
+      {error && <p style={{ color: '#f87171', fontSize: 12, margin: '0 0 8px' }}>{error}</p>}
+
+      {filtered.length === 0 && (
+        <p style={{ color: '#475569', fontSize: 12, margin: 0 }}>
+          {files.length === 0 ? 'No G-code files in the library yet.' : 'No files match your search.'}
+        </p>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 240, overflowY: 'auto' }}>
+        {filtered.map(gc => (
+          <div key={gc.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', borderRadius: 4, background: '#0f172a' }}>
+            <ReuseThumb id={gc.id} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={gc.filename}>
+                {gc.filename}
+              </div>
+              <div style={{ fontSize: 11, color: '#64748b' }}>
+                <span style={{ fontFamily: 'monospace' }}>{gc.printer_model}</span>
+                {' · '}{gc.parts_per_plate}× per plate
+                {gc.use_count > 0 && gc.project_names ? ` · used in ${gc.project_names}` : ' · unused'}
+              </div>
+            </div>
+            <button
+              onClick={() => useFile(gc)}
+              disabled={busyId === gc.id}
+              style={{
+                background: '#1e3a5f', color: '#60a5fa', border: 'none', borderRadius: 4,
+                padding: '4px 12px', fontSize: 12, fontWeight: 600,
+                cursor: busyId === gc.id ? 'wait' : 'pointer', flexShrink: 0,
+              }}
+            >
+              {busyId === gc.id ? 'Adding…' : 'Use'}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm, filamentTypes, filamentColors, projectMaterial, projectColor }) {
   const [have, setHave] = useState(String(part.completed_qty));
   const [need, setNeed] = useState(String(part.target_qty));
@@ -709,9 +818,9 @@ function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm, filamen
 
   async function deleteGcode(gcodeId) {
     const ok = await onConfirm({
-      title: 'Delete G-code',
-      message: 'Delete this G-code file?',
-      confirmLabel: 'Delete',
+      title: 'Remove G-code from part',
+      message: 'Remove this G-code from this part? The file stays in the G-code Library — delete it there to remove it for good.',
+      confirmLabel: 'Remove',
       danger: true,
     });
     if (!ok) return;
@@ -827,6 +936,9 @@ function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm, filamen
           projectMaterial={projectMaterial}
           projectColor={projectColor}
         />
+        <div style={{ marginTop: 10 }}>
+          <ReuseGcodePicker part={part} onReused={onRefresh} />
+        </div>
       </div>
 
       {/* Dispatch diagnostic */}

@@ -12,6 +12,21 @@ Cambios **propios de SCR** (Fábrica 3D), los que no van al repo original.
 
 ---
 
+## 2026-07-11 — Biblioteca de G-codes (nuestra versión, pendiente upstream)
+
+Página **G-codes** nueva: galería con todos los archivos, cada uno **una sola vez**, con buscador, descarga y borrado definitivo.
+
+- **Reuso entre proyectos:** un archivo se adjunta a otra parte **sin re-subirlo y sin duplicarlo en disco** — las filas comparten el mismo `filepath` y el archivo físico solo se borra cuando ya nadie lo referencia.
+- **Quitar ≠ borrar:** sacar un G-code de una parte solo lo desvincula; el archivo sigue en la biblioteca aunque no lo use ningún proyecto. El borrado definitivo se hace desde la página G-codes.
+- **Miniaturas reales:** se extrae la imagen que el slicer embebe en el archivo (`.bgcode` de Prusa y `.gcode`), **sin agregar dependencias** (`server/gcode-thumbnail.js`).
+- **Esquema:** `gcodes.part_id` pasa a ser nulo (un archivo puede vivir en la biblioteca sin parte). Migración puntual al arrancar, mismo patrón que la de `jobs.gcode_id`.
+
+Endpoints: `GET /api/gcodes/library`, `/:id/download`, `/:id/reuse`, `/:id/thumbnail`; `DELETE /:id` (desvincula) y `DELETE /:id/file` (borra de verdad).
+
+> **Ojo — divergencia con Joel.** El "quitar ≠ borrar" cambia el contrato de `DELETE /api/gcodes/:id` (en su código ese endpoint borra el archivo), así que hubo que **adaptar sus tests** a la nueva semántica. Está abierto el [issue #34](https://github.com/joeltelling/print-farm-manager/issues/34) preguntándole qué comportamiento prefiere; si elige el conservador, esta divergencia desaparece. La rama `gcode-library` tiene la versión limpia para el PR.
+
+---
+
 ## 2026-07-11 — Sincronización con upstream + fidelidad del fork
 
 Traídos los últimos commits de Joel (`fix(status)` de la página Jobs, docs, CLAUDE.md reescrito + skills). Merge sin conflictos; 391 tests pasan.

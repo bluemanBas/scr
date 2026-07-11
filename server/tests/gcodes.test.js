@@ -32,7 +32,7 @@ beforeAll(() => {
     );
     CREATE TABLE gcodes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      part_id INTEGER NOT NULL REFERENCES parts(id),
+      part_id INTEGER REFERENCES parts(id),  -- nullable: null = in the Library, attached to no Part
       printer_model TEXT NOT NULL,
       filename TEXT NOT NULL,
       filepath TEXT NOT NULL,
@@ -86,6 +86,7 @@ beforeAll(() => {
   const now = Date.now();
   db.prepare('INSERT INTO projects (name, created_at, updated_at) VALUES (?, ?, ?)').run('Test Project', now, now);
   db.prepare('INSERT INTO parts (project_id, name, target_qty, created_at, updated_at) VALUES (1, ?, 10, ?, ?)').run('Test Part', now, now);
+  db.prepare('INSERT INTO parts (project_id, name, target_qty, created_at, updated_at) VALUES (1, ?, 10, ?, ?)').run('Second Part', now, now);  // reuse target
   db.prepare('INSERT INTO printers (name, ip, api_key, model, created_at) VALUES (?, ?, ?, ?, ?)').run('Test Printer', '192.168.1.1', 'key', 'mk4s', now);
 });
 
@@ -298,23 +299,25 @@ describe('POST /api/gcodes/upload', () => {
 });
 
 // ── Helper: insert a gcode row directly and write its file to disk ────────────
-function insertGcode(filename, filepath) {
+function insertGcode(filename, filepath, partId = 1, model = 'mk4s') {
   const now = Date.now();
   const row = db.prepare(`
     INSERT INTO gcodes (part_id, printer_model, filename, filepath, parts_per_plate, created_at)
-    VALUES (1, 'mk4s', ?, ?, 1, ?)
-  `).run(filename, filepath, now);
+    VALUES (?, ?, ?, ?, 1, ?)
+  `).run(partId, model, filename, filepath, now);
   return row.lastInsertRowid;
 }
 
-describe('DELETE /api/gcodes/:id', () => {
+// DELETE /:id removes a G-code from its Part — it never deletes the file.
+// Permanent deletion lives on DELETE /:id/file (see the next block).
+describe('DELETE /api/gcodes/:id (remove from part)', () => {
   test('returns 404 for unknown id', async () => {
     const res = await request(app).delete('/api/gcodes/99999');
     expect(res.status).toBe(404);
   });
 
-  test('deletes DB record and removes file from disk', async () => {
-    const filename = `del_test_${Date.now()}.bgcode`;
+  test('last usage: keeps the row unattached and keeps the file on disk', async () => {
+    const filename = `detach_last_${Date.now()}.bgcode`;
     const filePath = path.join(GCODE_DIR, filename);
     fs.writeFileSync(filePath, 'fake gcode');
     const id = insertGcode(filename, filename);
@@ -323,32 +326,30 @@ describe('DELETE /api/gcodes/:id', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(id)).toBeUndefined();
-    expect(fs.existsSync(filePath)).toBe(false);
+    // The row survives with no Part — the file stays in the Library
+    const row = db.prepare('SELECT part_id FROM gcodes WHERE id = ?').get(id);
+    expect(row).toBeDefined();
+    expect(row.part_id).toBeNull();
+    expect(fs.existsSync(filePath)).toBe(true);
+
+    fs.unlinkSync(filePath);
   });
 
-  test('succeeds even when file is already missing from disk', async () => {
-    const id = insertGcode('ghost.bgcode', 'ghost.bgcode');
-    // No file written — simulates a file that was manually removed
-
-    const res = await request(app).delete(`/api/gcodes/${id}`);
-
-    expect(res.status).toBe(200);
-    expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(id)).toBeUndefined();
-  });
-
-  test('resolves file correctly when filepath is an old absolute path', async () => {
-    const filename = `abs_path_test_${Date.now()}.bgcode`;
+  test('another part still uses the file: drops this row, keeps the file', async () => {
+    const filename = `detach_shared_${Date.now()}.bgcode`;
     const filePath = path.join(GCODE_DIR, filename);
     fs.writeFileSync(filePath, 'fake gcode');
-    // Simulate an old DB row with a Unix absolute path (pre-portable-path migration)
-    const oldAbsPath = `/Users/olduser/dev/print-farm-manager/server/gcode/${filename}`;
-    const id = insertGcode(filename, oldAbsPath);
+    const idA = insertGcode(filename, filename, 1, 'mk4s');
+    const idB = insertGcode(filename, filename, 2, 'c1'); // same file, other part
 
-    const res = await request(app).delete(`/api/gcodes/${id}`);
+    const res = await request(app).delete(`/api/gcodes/${idA}`);
 
     expect(res.status).toBe(200);
-    expect(fs.existsSync(filePath)).toBe(false);
+    expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(idA)).toBeUndefined();
+    expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(idB)).toBeDefined();
+    expect(fs.existsSync(filePath)).toBe(true); // still referenced by part 2
+
+    fs.unlinkSync(filePath);
   });
 
   test('returns 409 when an active job references the gcode', async () => {
@@ -367,6 +368,81 @@ describe('DELETE /api/gcodes/:id', () => {
     // Record should still exist
     expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(id)).toBeDefined();
   });
+});
+
+describe('DELETE /api/gcodes/:id/file (permanent delete)', () => {
+  test('returns 404 for unknown id', async () => {
+    const res = await request(app).delete('/api/gcodes/99999/file');
+    expect(res.status).toBe(404);
+  });
+
+  test('deletes DB record and removes file from disk', async () => {
+    const filename = `purge_${Date.now()}.bgcode`;
+    const filePath = path.join(GCODE_DIR, filename);
+    fs.writeFileSync(filePath, 'fake gcode');
+    const id = insertGcode(filename, filename);
+
+    const res = await request(app).delete(`/api/gcodes/${id}/file`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(id)).toBeUndefined();
+    expect(fs.existsSync(filePath)).toBe(false);
+  });
+
+  test('removes every row that references the same file', async () => {
+    const filename = `purge_shared_${Date.now()}.bgcode`;
+    const filePath = path.join(GCODE_DIR, filename);
+    fs.writeFileSync(filePath, 'fake gcode');
+    const idA = insertGcode(filename, filename, 1, 'mk4s');
+    const idB = insertGcode(filename, filename, 2, 'c1');
+
+    const res = await request(app).delete(`/api/gcodes/${idA}/file`);
+
+    expect(res.status).toBe(200);
+    expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(idA)).toBeUndefined();
+    expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(idB)).toBeUndefined();
+    expect(fs.existsSync(filePath)).toBe(false);
+  });
+
+  test('succeeds even when file is already missing from disk', async () => {
+    const id = insertGcode('ghost.bgcode', 'ghost.bgcode');
+    // No file written — simulates a file that was manually removed
+
+    const res = await request(app).delete(`/api/gcodes/${id}/file`);
+
+    expect(res.status).toBe(200);
+    expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(id)).toBeUndefined();
+  });
+
+  test('resolves file correctly when filepath is an old absolute path', async () => {
+    const filename = `abs_path_test_${Date.now()}.bgcode`;
+    const filePath = path.join(GCODE_DIR, filename);
+    fs.writeFileSync(filePath, 'fake gcode');
+    // Simulate an old DB row with a Unix absolute path (pre-portable-path migration)
+    const oldAbsPath = `/Users/olduser/dev/print-farm-manager/server/gcode/${filename}`;
+    const id = insertGcode(filename, oldAbsPath);
+
+    const res = await request(app).delete(`/api/gcodes/${id}/file`);
+
+    expect(res.status).toBe(200);
+    expect(fs.existsSync(filePath)).toBe(false);
+  });
+
+  test('returns 409 when an active job references the file', async () => {
+    const filename = `purge_active_${Date.now()}.bgcode`;
+    const id = insertGcode(filename, filename);
+    const now = Date.now();
+    db.prepare(`
+      INSERT INTO jobs (part_id, printer_id, gcode_id, parts_per_plate, status, created_at)
+      VALUES (1, 1, ?, 1, 'printing', ?)
+    `).run(id, now);
+
+    const res = await request(app).delete(`/api/gcodes/${id}/file`);
+
+    expect(res.status).toBe(409);
+    expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(id)).toBeDefined();
+  });
 
   test('nulls out gcode_id on terminal jobs and deletes successfully', async () => {
     const filename = `terminal_job_${Date.now()}.bgcode`;
@@ -378,7 +454,7 @@ describe('DELETE /api/gcodes/:id', () => {
     `).run(id, now);
     const jobId = jobRow.lastInsertRowid;
 
-    const res = await request(app).delete(`/api/gcodes/${id}`);
+    const res = await request(app).delete(`/api/gcodes/${id}/file`);
 
     expect(res.status).toBe(200);
     expect(db.prepare('SELECT id FROM gcodes WHERE id = ?').get(id)).toBeUndefined();
@@ -386,5 +462,95 @@ describe('DELETE /api/gcodes/:id', () => {
     const job = db.prepare('SELECT gcode_id FROM jobs WHERE id = ?').get(jobId);
     expect(job).toBeDefined();
     expect(job.gcode_id).toBeNull();
+  });
+});
+
+describe('GET /api/gcodes/library', () => {
+  test('collapses rows sharing a file into one entry, with use_count and projects', async () => {
+    const filename = `lib_${Date.now()}.bgcode`;
+    const filePath = path.join(GCODE_DIR, filename);
+    fs.writeFileSync(filePath, 'fake gcode'); // 10 bytes
+    insertGcode(filename, filename, 1, 'mk4s');
+    insertGcode(filename, filename, 2, 'c1'); // same file, second part
+
+    const res = await request(app).get('/api/gcodes/library');
+
+    expect(res.status).toBe(200);
+    const entries = res.body.filter(e => e.filename === filename);
+    expect(entries).toHaveLength(1); // one entry, not two
+    expect(entries[0].use_count).toBe(2);
+    expect(entries[0].size_bytes).toBe(10);
+    expect(entries[0].project_names).toMatch(/Test Project/);
+
+    fs.unlinkSync(filePath);
+  });
+
+  test('reports an unattached file as unused', async () => {
+    const filename = `lib_unused_${Date.now()}.bgcode`;
+    const filePath = path.join(GCODE_DIR, filename);
+    fs.writeFileSync(filePath, 'fake gcode');
+    const id = insertGcode(filename, filename);
+    await request(app).delete(`/api/gcodes/${id}`); // detach — stays in the Library
+
+    const res = await request(app).get('/api/gcodes/library');
+
+    const entry = res.body.find(e => e.filename === filename);
+    expect(entry).toBeDefined();
+    expect(entry.use_count).toBe(0);
+    expect(entry.project_names).toBeNull();
+
+    fs.unlinkSync(filePath);
+  });
+});
+
+describe('POST /api/gcodes/:id/reuse', () => {
+  test('attaches the same file to another part without duplicating it on disk', async () => {
+    const filename = `reuse_${Date.now()}.bgcode`;
+    const filePath = path.join(GCODE_DIR, filename);
+    fs.writeFileSync(filePath, 'fake gcode');
+    const srcId = insertGcode(filename, filename, 1, 'mk4s');
+
+    const res = await request(app).post(`/api/gcodes/${srcId}/reuse`).send({ part_id: 2 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.part_id).toBe(2);
+    expect(res.body.filepath).toBe(filename);      // points at the same physical file
+    expect(res.body.printer_model).toBe('mk4s');   // metadata copied from the source
+
+    // A copy would have landed as "<timestamp>_<filename>" — assert only the original exists.
+    // (Counting the whole directory is unreliable: jest workers share server/gcode/.)
+    const onDisk = fs.readdirSync(GCODE_DIR).filter(f => f.includes(filename));
+    expect(onDisk).toEqual([filename]);
+
+    fs.unlinkSync(filePath);
+  });
+
+  test('returns 400 when part_id is missing', async () => {
+    const filename = `reuse_400_${Date.now()}.bgcode`;
+    const id = insertGcode(filename, filename);
+
+    const res = await request(app).post(`/api/gcodes/${id}/reuse`).send({});
+
+    expect(res.status).toBe(400);
+  });
+
+  test('returns 404 for an unknown source gcode', async () => {
+    const res = await request(app).post('/api/gcodes/99999/reuse').send({ part_id: 2 });
+    expect(res.status).toBe(404);
+  });
+
+  test('returns 409 when the target part already has a gcode for that model', async () => {
+    const filename = `reuse_409_${Date.now()}.bgcode`;
+    const filePath = path.join(GCODE_DIR, filename);
+    fs.writeFileSync(filePath, 'fake gcode');
+    const srcId = insertGcode(filename, filename, 1, 'xl');
+    insertGcode(`other_${filename}`, `other_${filename}`, 2, 'xl'); // part 2 already has an XL gcode
+
+    const res = await request(app).post(`/api/gcodes/${srcId}/reuse`).send({ part_id: 2 });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/already has a G-code/i);
+
+    fs.unlinkSync(filePath);
   });
 });
